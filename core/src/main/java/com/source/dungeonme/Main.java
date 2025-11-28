@@ -1,8 +1,6 @@
 package com.source.dungeonme; // <--- KIỂM TRA TÊN PACKAGE CỦA BẠN
 
-import com.badlogic.gdx.ApplicationAdapter;
-import com.badlogic.gdx.Gdx;
-import com.badlogic.gdx.Input;
+import com.badlogic.gdx.*;
 import com.badlogic.gdx.assets.AssetManager; // [Báo cáo Chương 2.5] Quản lý tài nguyên
 import com.badlogic.gdx.audio.Sound;         // [Báo cáo Chương 2.3.4] Module Audio
 import com.badlogic.gdx.graphics.Color;
@@ -12,10 +10,20 @@ import com.badlogic.gdx.graphics.Texture;
 import com.badlogic.gdx.graphics.g2d.BitmapFont;
 import com.badlogic.gdx.graphics.g2d.SpriteBatch; // [Báo cáo Chương 2.3.1] Cơ chế Batching
 import com.badlogic.gdx.graphics.g2d.TextureRegion;
+import com.badlogic.gdx.graphics.glutils.ShapeRenderer;
 import com.badlogic.gdx.math.MathUtils;
 import com.badlogic.gdx.math.Rectangle;
 import com.badlogic.gdx.math.Vector2;
+import com.badlogic.gdx.scenes.scene2d.InputEvent;
+import com.badlogic.gdx.scenes.scene2d.Stage;
+import com.badlogic.gdx.scenes.scene2d.ui.Skin;
+import com.badlogic.gdx.scenes.scene2d.ui.Table;
+import com.badlogic.gdx.scenes.scene2d.ui.TextButton;
+import com.badlogic.gdx.scenes.scene2d.utils.ClickListener;
 import com.badlogic.gdx.utils.Array;
+import com.badlogic.gdx.utils.viewport.FitViewport;
+import com.badlogic.gdx.utils.viewport.ScreenViewport;
+import com.badlogic.gdx.utils.viewport.Viewport;
 
 import java.util.Iterator;
 
@@ -25,13 +33,16 @@ public class Main extends ApplicationAdapter {
     OrthographicCamera camera;
     BitmapFont font;
     AssetManager assetManager;
+    private Viewport viewport;
+
 
     // --- QUẢN LÝ TRẠNG THÁI GAME (STATE MACHINE) ---
     // [Báo cáo Chương 3.3] Quản lý luồng game
     enum State {
         MENU,       // Màn hình chờ
         PLAYING,    // Đang chơi
-        GAME_OVER   // Kết thúc
+        GAME_OVER,  // Kết thúc
+        PAUSED      // Tạm dừng
     }
     State currentState = State.MENU; // Mặc định vào Menu
 
@@ -73,6 +84,12 @@ public class Main extends ApplicationAdapter {
     Sound soundShoot, soundHit;
     Texture imgBlank;
 
+    private Stage pauseStage;
+    private Skin skin;
+    private ShapeRenderer shapeRenderer;
+    private InputMultiplexer multiplexer;
+
+
     @Override
     public void create() {
         // [Báo cáo Chương 2.3.1] SpriteBatch để tối ưu Draw Calls
@@ -80,7 +97,8 @@ public class Main extends ApplicationAdapter {
 
         // [Báo cáo Chương 2.3.2] Camera Orthographic cho game 2D
         camera = new OrthographicCamera();
-        camera.setToOrtho(false, 800, 480);
+        viewport = new FitViewport(800, 480, camera);
+        viewport.apply();
 
         font = new BitmapFont(); // Font mặc định
 
@@ -116,6 +134,32 @@ public class Main extends ApplicationAdapter {
         pixmap.setColor(Color.WHITE); pixmap.fill();
         imgBlank = new Texture(pixmap); pixmap.dispose();
 
+        // Pause menu stage
+        shapeRenderer = new ShapeRenderer();
+        pauseStage = new Stage(new ScreenViewport());
+        try {
+            skin = new Skin(Gdx.files.internal("uiskin.json"));
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+        createPauseMenu();
+
+        multiplexer = new InputMultiplexer();
+        multiplexer.addProcessor(new InputAdapter() {
+            @Override
+            public boolean keyDown(int keycode) {
+                if(keycode == Input.Keys.ESCAPE) {
+                    if(currentState == State.PLAYING) pause();
+                    else if(currentState == State.PAUSED) resume();
+                    return true;
+                }
+                return false;
+            }
+        });
+        multiplexer.addProcessor(pauseStage);
+        Gdx.input.setInputProcessor(multiplexer);
+
+
         // Khởi tạo game ban đầu
         resetGame();
     }
@@ -146,11 +190,15 @@ public class Main extends ApplicationAdapter {
 
     @Override
     public void render() {
+        viewport.apply();
+
         // Clear Screen [Báo cáo Chương 2.2]
         Gdx.gl.glClearColor(0.1f, 0.1f, 0.1f, 1);
         Gdx.gl.glClear(GL20.GL_COLOR_BUFFER_BIT);
 
         float deltaTime = Gdx.graphics.getDeltaTime();
+        camera.update();
+        batch.setProjectionMatrix(camera.combined);
 
         // --- STATE MACHINE (QUẢN LÝ TRẠNG THÁI) ---
         switch (currentState) {
@@ -160,10 +208,22 @@ public class Main extends ApplicationAdapter {
             case PLAYING:
                 updateGameLogic(deltaTime);
                 drawGame();
-                if (playerHp <= 0) currentState = State.GAME_OVER;
+                if (playerHp <= 0) {
+                    currentState = State.GAME_OVER;
+                    // RESET CAMERA
+                    camera.position.set(viewport.getWorldWidth() / 2f, viewport.getWorldHeight() / 2f, 0);
+                    camera.update();
+                }
                 break;
             case GAME_OVER:
                 updateGameOver();
+                break;
+            case PAUSED:
+                drawGame();
+                drawPauseOverlay();
+                pauseStage.getViewport().apply();
+                pauseStage.act(Gdx.graphics.getDeltaTime());
+                pauseStage.draw();
                 break;
         }
     }
@@ -207,6 +267,7 @@ public class Main extends ApplicationAdapter {
 
     // --- LOGIC GAMEPLAY (UPDATE) ---
     private void updateGameLogic(float deltaTime) {
+
         stateTime += deltaTime;
 
         // 1. INPUT POLLING [Báo cáo Chương 2.3.3]
@@ -278,118 +339,144 @@ public class Main extends ApplicationAdapter {
             }
         }
 
-        // B. QUÁI (AI BFS + SLIDING)
-        if (damageCooldown > 0) damageCooldown -= Gdx.graphics.getDeltaTime();
-        if (playerHitTimer > 0) playerHitTimer -= Gdx.graphics.getDeltaTime();
+        if (currentState == State.PLAYING) {
+            // B. QUÁI (AI BFS + SLIDING)
+            if (damageCooldown > 0) damageCooldown -= Gdx.graphics.getDeltaTime();
+            if (playerHitTimer > 0) playerHitTimer -= Gdx.graphics.getDeltaTime();
 
-        Texture imgGoblinBody = assetManager.get("goblin faceless.png", Texture.class);
+            Texture imgGoblinBody = assetManager.get("goblin faceless.png", Texture.class);
 
-        for(Goblin enemy : enemies) {
-            // Logic BFS
-            enemy.pathTimer += Gdx.graphics.getDeltaTime();
-            if (enemy.pathTimer > 0.2f) {
-                enemy.pathTimer = 0;
-                enemy.nextStep = findNextStep(enemy.x + 20, enemy.y + 20, player.x + 20, player.y + 20);
-            }
-            Vector2 dir;
-            if (enemy.nextStep != null) {
-                dir = new Vector2(enemy.nextStep.x - (enemy.x + 20), enemy.nextStep.y - (enemy.y + 20)).nor();
-                if(Vector2.dst(enemy.x, enemy.y, enemy.nextStep.x - 20, enemy.nextStep.y - 20) < 5) dir.setZero();
-            } else {
-                dir = new Vector2(player.x - enemy.x, player.y - enemy.y).nor();
-            }
-
-            // Logic Di chuyển (Sliding)
-            float enemySpeed = 100 * Gdx.graphics.getDeltaTime();
-            float moveX = dir.x * enemySpeed;
-            float moveY = dir.y * enemySpeed;
-
-            if (!isWall(enemy.x + moveX, enemy.y, 20)) enemy.x += moveX;
-            else {
-                float targetY = (enemy.nextStep != null) ? (enemy.nextStep.y - 20) : player.y;
-                float slideDir = (targetY > enemy.y) ? 1 : -1;
-                if (!isWall(enemy.x, enemy.y + slideDir * enemySpeed, 20)) enemy.y += slideDir * enemySpeed;
-            }
-
-            if (!isWall(enemy.x, enemy.y + moveY, 20)) enemy.y += moveY;
-            else {
-                float targetX = (enemy.nextStep != null) ? (enemy.nextStep.x - 20) : player.x;
-                float slideDir = (targetX > enemy.x) ? 1 : -1;
-                if (!isWall(enemy.x + slideDir * enemySpeed, enemy.y, 20)) enemy.x += slideDir * enemySpeed;
-            }
-
-            // Va chạm Player (Cắn)
-            Rectangle enemyHitbox = new Rectangle(enemy.x + 10, enemy.y + 10, 20, 20);
-            if (player.overlaps(enemyHitbox) && damageCooldown <= 0) {
-                playerHp--; damageCooldown = 1.0f; playerHitTimer = 0.2f;
-                Vector2 pushDir = new Vector2(player.x - enemy.x, player.y - enemy.y).nor();
-                player.x += pushDir.x * 50; player.y += pushDir.y * 50;
-            }
-
-            // Vẽ Quái
-            if (enemy.hitTimer > 0) { enemy.hitTimer -= Gdx.graphics.getDeltaTime(); batch.setColor(1, 0, 0, 1); }
-            else batch.setColor(1, 1, 1, 1);
-            batch.draw(imgGoblinBody, enemy.x, enemy.y, 40, 40);
-            batch.draw(enemy.eyeTexture, enemy.x, enemy.y, 40, 40);
-            batch.setColor(1, 1, 1, 1);
-        }
-
-        // C. PLAYER
-        if (playerHitTimer > 0) batch.setColor(1, 0, 0, 1);
-        else if (damageCooldown > 0) {
-            if (MathUtils.sin(stateTime * 20) > 0) batch.setColor(1, 1, 1, 0.5f);
-            else batch.setColor(1, 1, 1, 1);
-        } else batch.setColor(1, 1, 1, 1);
-
-        Texture imgPlayer = assetManager.get("knight.png", Texture.class);
-        TextureRegion playerFrame = new TextureRegion(imgPlayer);
-        if (facingDir.x < 0 && !playerFrame.isFlipX()) playerFrame.flip(true, false);
-        if (facingDir.x > 0 && playerFrame.isFlipX()) playerFrame.flip(true, false);
-
-        batch.draw(playerFrame, player.x, player.y, PLAYER_SIZE/2, PLAYER_SIZE/2, PLAYER_SIZE, PLAYER_SIZE, 1, 1 + MathUtils.sin(stateTime*5)*0.05f, playerRotation);
-        batch.setColor(1, 1, 1, 1);
-
-        // D. WEAPON (BOW)
-        float handOffsetX = 16f; float handOffsetY = -8f; float baseRotation = -45f;
-        float weaponX, weaponY, weaponRotation;
-        boolean flipX;
-        if (facingDir.x >= 0) {
-            weaponX = (player.x + PLAYER_SIZE/2) + handOffsetX; weaponY = (player.y + PLAYER_SIZE/2) + handOffsetY;
-            weaponRotation = baseRotation; flipX = false;
-        } else {
-            weaponX = (player.x + PLAYER_SIZE/2) - handOffsetX; weaponY = (player.y + PLAYER_SIZE/2) + handOffsetY;
-            weaponRotation = -baseRotation; flipX = true;
-        }
-        Texture imgWeapon = assetManager.get("bow.png", Texture.class);
-        TextureRegion wRegion = new TextureRegion(imgWeapon);
-        if (flipX) wRegion.flip(true, false);
-        batch.draw(wRegion, weaponX - 16, weaponY - 16, 16, 16, 32, 32, 1, 1, weaponRotation);
-
-        // E. BULLETS
-        Iterator<Bullet> iter = bullets.iterator();
-        while(iter.hasNext()) {
-            Bullet b = iter.next();
-            b.update(Gdx.graphics.getDeltaTime());
-            if (isCellBlocked(b.x, b.y)) { iter.remove(); continue; }
-
-            Texture imgArrow = assetManager.get("iron sword.png", Texture.class); // Mũi tên tạm
-            batch.draw(new TextureRegion(imgArrow), b.x-10, b.y-10, 10, 10, 20, 20, 1, 1, b.angle-45);
-
-            Rectangle bRect = new Rectangle(b.x-10, b.y-10, 20, 20);
-            boolean hit = false;
-            Iterator<Goblin> eIter = enemies.iterator();
-            while(eIter.hasNext()) {
-                Goblin enemy = eIter.next();
-                if(bRect.overlaps(enemy)) {
-                    enemy.takeDamage(1);
-                    if (enemy.hp <= 0) {
-                        eIter.remove();
-                        if (soundHit != null) soundHit.play(0.5f);
-                    }
-                    hit = true; break;
+            for (Goblin enemy : enemies) {
+                // Logic BFS
+                enemy.pathTimer += Gdx.graphics.getDeltaTime();
+                if (enemy.pathTimer > 0.2f) {
+                    enemy.pathTimer = 0;
+                    enemy.nextStep = findNextStep(enemy.x + 20, enemy.y + 20, player.x + 20, player.y + 20);
                 }
+                Vector2 dir;
+                if (enemy.nextStep != null) {
+                    dir = new Vector2(enemy.nextStep.x - (enemy.x + 20), enemy.nextStep.y - (enemy.y + 20)).nor();
+                    if (Vector2.dst(enemy.x, enemy.y, enemy.nextStep.x - 20, enemy.nextStep.y - 20) < 5) dir.setZero();
+                } else {
+                    dir = new Vector2(player.x - enemy.x, player.y - enemy.y).nor();
+                }
+
+                // Logic Di chuyển (Sliding)
+                float enemySpeed = 100 * Gdx.graphics.getDeltaTime();
+                float moveX = dir.x * enemySpeed;
+                float moveY = dir.y * enemySpeed;
+
+                if (!isWall(enemy.x + moveX, enemy.y, 20)) enemy.x += moveX;
+                else {
+                    float targetY = (enemy.nextStep != null) ? (enemy.nextStep.y - 20) : player.y;
+                    float slideDir = (targetY > enemy.y) ? 1 : -1;
+                    if (!isWall(enemy.x, enemy.y + slideDir * enemySpeed, 20)) enemy.y += slideDir * enemySpeed;
+                }
+
+                if (!isWall(enemy.x, enemy.y + moveY, 20)) enemy.y += moveY;
+                else {
+                    float targetX = (enemy.nextStep != null) ? (enemy.nextStep.x - 20) : player.x;
+                    float slideDir = (targetX > enemy.x) ? 1 : -1;
+                    if (!isWall(enemy.x + slideDir * enemySpeed, enemy.y, 20)) enemy.x += slideDir * enemySpeed;
+                }
+
+                // Va chạm Player (Cắn)
+                Rectangle enemyHitbox = new Rectangle(enemy.x + 10, enemy.y + 10, 20, 20);
+                if (player.overlaps(enemyHitbox) && damageCooldown <= 0) {
+                    playerHp--;
+                    damageCooldown = 1.0f;
+                    playerHitTimer = 0.2f;
+                    Vector2 pushDir = new Vector2(player.x - enemy.x, player.y - enemy.y).nor();
+                    float knock = 50f;
+
+                    float newX = player.x + pushDir.x * knock;
+                    if (!isWall(newX, player.y, PLAYER_SIZE / 2)) {
+                        player.x = newX;
+                    }
+                    float newY = player.y + pushDir.y * knock;
+                    if (!isWall(player.x, newY, PLAYER_SIZE / 2)) {
+                        player.y = newY;
+                    }
+
+                }
+
+                // Vẽ Quái
+                if (enemy.hitTimer > 0) {
+                    enemy.hitTimer -= Gdx.graphics.getDeltaTime();
+                    batch.setColor(1, 0, 0, 1);
+                } else batch.setColor(1, 1, 1, 1);
+                batch.draw(imgGoblinBody, enemy.x, enemy.y, 40, 40);
+                batch.draw(enemy.eyeTexture, enemy.x, enemy.y, 40, 40);
+                batch.setColor(1, 1, 1, 1);
             }
-            if(hit || b.lifeTime > 2) iter.remove();
+
+            // C. PLAYER
+            if (playerHitTimer > 0) batch.setColor(1, 0, 0, 1);
+            else if (damageCooldown > 0) {
+                if (MathUtils.sin(stateTime * 20) > 0) batch.setColor(1, 1, 1, 0.5f);
+                else batch.setColor(1, 1, 1, 1);
+            } else batch.setColor(1, 1, 1, 1);
+
+            Texture imgPlayer = assetManager.get("knight.png", Texture.class);
+            TextureRegion playerFrame = new TextureRegion(imgPlayer);
+            if (facingDir.x < 0 && !playerFrame.isFlipX()) playerFrame.flip(true, false);
+            if (facingDir.x > 0 && playerFrame.isFlipX()) playerFrame.flip(true, false);
+
+            batch.draw(playerFrame, player.x, player.y, PLAYER_SIZE / 2, PLAYER_SIZE / 2, PLAYER_SIZE, PLAYER_SIZE, 1, 1 + MathUtils.sin(stateTime * 5) * 0.05f, playerRotation);
+            batch.setColor(1, 1, 1, 1);
+
+            // D. WEAPON (BOW)
+            float handOffsetX = 16f;
+            float handOffsetY = -8f;
+            float baseRotation = -45f;
+            float weaponX, weaponY, weaponRotation;
+            boolean flipX;
+            if (facingDir.x >= 0) {
+                weaponX = (player.x + PLAYER_SIZE / 2) + handOffsetX;
+                weaponY = (player.y + PLAYER_SIZE / 2) + handOffsetY;
+                weaponRotation = baseRotation;
+                flipX = false;
+            } else {
+                weaponX = (player.x + PLAYER_SIZE / 2) - handOffsetX;
+                weaponY = (player.y + PLAYER_SIZE / 2) + handOffsetY;
+                weaponRotation = -baseRotation;
+                flipX = true;
+            }
+            Texture imgWeapon = assetManager.get("bow.png", Texture.class);
+            TextureRegion wRegion = new TextureRegion(imgWeapon);
+            if (flipX) wRegion.flip(true, false);
+            batch.draw(wRegion, weaponX - 16, weaponY - 16, 16, 16, 32, 32, 1, 1, weaponRotation);
+
+            // E. BULLETS
+            Iterator<Bullet> iter = bullets.iterator();
+            while (iter.hasNext()) {
+                Bullet b = iter.next();
+                b.update(Gdx.graphics.getDeltaTime());
+                if (isCellBlocked(b.x, b.y)) {
+                    iter.remove();
+                    continue;
+                }
+
+                Texture imgArrow = assetManager.get("iron sword.png", Texture.class); // Mũi tên tạm
+                batch.draw(new TextureRegion(imgArrow), b.x - 10, b.y - 10, 10, 10, 20, 20, 1, 1, b.angle - 45);
+
+                Rectangle bRect = new Rectangle(b.x - 10, b.y - 10, 20, 20);
+                boolean hit = false;
+                Iterator<Goblin> eIter = enemies.iterator();
+                while (eIter.hasNext()) {
+                    Goblin enemy = eIter.next();
+                    if (bRect.overlaps(enemy)) {
+                        enemy.takeDamage(1);
+                        if (enemy.hp <= 0) {
+                            eIter.remove();
+                            if (soundHit != null) soundHit.play(0.5f);
+                        }
+                        hit = true;
+                        break;
+                    }
+                }
+                if (hit || b.lifeTime > 2) iter.remove();
+            }
         }
 
         // F. UI (HP BAR)
@@ -414,6 +501,9 @@ public class Main extends ApplicationAdapter {
         batch.dispose();
         imgBlank.dispose();
         assetManager.dispose();
+        pauseStage.dispose();
+        skin.dispose();
+        shapeRenderer.dispose();
     }
 
     // --- HELPER CLASSES & METHODS ---
@@ -493,4 +583,68 @@ public class Main extends ApplicationAdapter {
         public void update(float dt) { x += vx * dt; y += vy * dt; lifeTime += dt; }
     }
     class PathNode { int x, y; PathNode parent; public PathNode(int x, int y, PathNode p) { this.x=x; this.y=y; this.parent=p; }}
+
+    @Override
+    public void resize(int width, int height) {
+        viewport.update(width, height, true);
+    }
+
+    @Override
+    public void pause() {
+        if (currentState == State.PLAYING) {
+            currentState = State.PAUSED;
+            if (!multiplexer.getProcessors().contains(pauseStage, true))
+                multiplexer.addProcessor(pauseStage); // thêm stage vào multiplexer
+            Gdx.input.setInputProcessor(multiplexer);
+        }
+    }
+
+    @Override
+    public void resume() {
+        if (currentState == State.PAUSED) {
+            currentState = State.PLAYING;
+            multiplexer.removeProcessor(pauseStage); // remove stage khỏi multiplexer
+            // gameplay input (nếu có) vẫn giữ multiplexer
+            Gdx.input.setInputProcessor(multiplexer);
+        }
+    }
+
+    private void drawPauseOverlay() {
+        // Vẽ overlay mờ
+        Gdx.gl.glEnable(GL20.GL_BLEND);
+        shapeRenderer.begin(ShapeRenderer.ShapeType.Filled);
+        shapeRenderer.setColor(new Color(0, 0, 0, 0.5f)); // nửa trong suốt
+        shapeRenderer.rect(0, 0, Gdx.graphics.getWidth(), Gdx.graphics.getHeight());
+        shapeRenderer.end();
+        Gdx.gl.glDisable(GL20.GL_BLEND);
+
+    }
+
+    private void createPauseMenu() {
+        Table table = new Table();
+        table.setFillParent(true);
+        table.layout();
+        pauseStage.addActor(table);
+
+        TextButton resumeButton = new TextButton("Resume", skin);
+        TextButton quitButton = new TextButton("Quit", skin);
+
+        table.add(resumeButton).pad(10).row();
+        table.add(quitButton).pad(10).row();
+
+        resumeButton.addListener(new ClickListener() {
+            @Override
+            public void clicked(InputEvent event, float x, float y) {
+                resume();
+            }
+        });
+
+        quitButton.addListener(new ClickListener() {
+            @Override
+            public void clicked(InputEvent event, float x, float y) {
+                Gdx.app.exit();
+            }
+        });
+    }
+
 }
