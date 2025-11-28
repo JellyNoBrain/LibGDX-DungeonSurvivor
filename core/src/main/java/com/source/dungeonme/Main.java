@@ -8,6 +8,7 @@ import com.badlogic.gdx.graphics.GL20;
 import com.badlogic.gdx.graphics.OrthographicCamera;
 import com.badlogic.gdx.graphics.Texture;
 import com.badlogic.gdx.graphics.g2d.BitmapFont;
+import com.badlogic.gdx.graphics.g2d.GlyphLayout;
 import com.badlogic.gdx.graphics.g2d.SpriteBatch; // [Báo cáo Chương 2.3.1] Cơ chế Batching
 import com.badlogic.gdx.graphics.g2d.TextureRegion;
 import com.badlogic.gdx.graphics.glutils.ShapeRenderer;
@@ -52,18 +53,52 @@ public class Main extends ApplicationAdapter {
     final float DETECTION_RADIUS = 300f;
 
     // Dữ liệu Map (1 = Tường, 0 = Sàn)
-    int[][] mapData = {
+    int[][] map1 = {
         {1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1},
         {1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1},
         {1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1},
         {1, 0, 0, 0, 0, 1, 1, 1, 1, 1, 0, 0, 0, 0, 1},
-        {1, 0, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 0, 1},
+        {1, 0, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 0, -1},
         {1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 1},
         {1, 0, 0, 0, 0, 1, 1, 0, 1, 1, 0, 0, 0, 0, 1},
         {1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1},
         {1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1},
         {1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1}
     };
+    int[][] map2 = {
+        {1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1},
+        {0, 0, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 1, 0, 0},
+        {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+        {0, 1, 1, 1, 0, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0},
+        {0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 1, 1, 1},
+        {0, 0, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 0, 0},
+        {0, 0, 1, 1, 0, 1, 1, 0, 1, 1, 1, 1, 0, 0, 0},
+        {0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 1, 0, 0, 0},
+        {0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0},
+        {1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1} }; // map ô loot
+    int[][] map3 = {
+        {1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1},
+        {1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1},
+        {1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1},
+        {1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1},
+        {1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1},
+        {-1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1},
+        {1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1},
+        {1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1},
+        {1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1},
+        {1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1}
+    };
+
+
+    final int MAP1_WIDTH = map1[0].length;
+    final int MAP2_WIDTH = map2[0].length;
+    final int MAP3_WIDTH = map3[0].length;
+    final int MAP_HEIGHT = map1.length; // giả sử cả 3 map cao bằng nhau
+
+    // Map lớn gồm 3 ô liền nhau theo chiều ngang
+    final int TOTAL_MAP_WIDTH = MAP1_WIDTH + MAP2_WIDTH + MAP3_WIDTH;
+    int[][] mapData = new int[MAP_HEIGHT][TOTAL_MAP_WIDTH]; // copy 3 map vào 1 array
+
     int mapHeight = mapData.length;
     int mapWidth = mapData[0].length;
 
@@ -79,6 +114,22 @@ public class Main extends ApplicationAdapter {
 
     Array<Bullet> bullets;
     Array<Goblin> enemies;
+
+    // Map
+    Array<Rectangle> lootChests = new Array<>();
+    Rectangle boss; // vị trí boss
+    int currentMap = 0;
+    // Quản lý thứ tự các ô map
+    enum StageState {
+        FIRST_ROOM, // đánh quái đợt đầu
+        CHEST_ROOM, // loot rương
+        BOSS_ROOM   // đánh demon
+    }
+    StageState stageState = StageState.FIRST_ROOM;
+
+    // Vị trí các room trong mapData
+    int chestRoomStartX = MAP1_WIDTH * TILE_SIZE;
+    int bossRoomStartX  = (MAP1_WIDTH + MAP2_WIDTH) * TILE_SIZE;
 
     // Audio & UI
     Sound soundShoot, soundHit;
@@ -115,6 +166,10 @@ public class Main extends ApplicationAdapter {
         assetManager.load("big eyes.png", Texture.class);
         assetManager.load("evil eyes.png", Texture.class);
         assetManager.load("iron sword.png", Texture.class); // Làm mũi tên tạm
+        assetManager.load("chest.png", Texture.class);
+        assetManager.load("door.png", Texture.class);
+        assetManager.load("demon.png", Texture.class);
+
 
         // Load Sounds [Báo cáo Chương 2.3.4]
         try {
@@ -148,20 +203,35 @@ public class Main extends ApplicationAdapter {
         multiplexer.addProcessor(new InputAdapter() {
             @Override
             public boolean keyDown(int keycode) {
-                if(keycode == Input.Keys.ESCAPE) {
-                    if(currentState == State.PLAYING) pause();
-                    else if(currentState == State.PAUSED) resume();
+                if (keycode == Input.Keys.ESCAPE) {
+                    if (currentState == State.PLAYING) pause();
+                    else if (currentState == State.PAUSED) resume();
                     return true;
                 }
                 return false;
             }
         });
-        multiplexer.addProcessor(pauseStage);
         Gdx.input.setInputProcessor(multiplexer);
 
+        // Tạo mapData lớn từ 3 map nhỏ
+        copyMapsIntoMapData();
 
         // Khởi tạo game ban đầu
         resetGame();
+    }
+
+    private void copyMapsIntoMapData() {
+        for (int row = 0; row < MAP_HEIGHT; row++) {
+            for (int col = 0; col < MAP1_WIDTH; col++) {
+                mapData[row][col] = map1[row][col];
+            }
+            for (int col = 0; col < MAP2_WIDTH; col++) {
+                mapData[row][MAP1_WIDTH + col] = map2[row][col];
+            }
+            for (int col = 0; col < MAP3_WIDTH; col++) {
+                mapData[row][MAP1_WIDTH + MAP2_WIDTH + col] = map3[row][col];
+            }
+        }
     }
 
     // Hàm reset game (Dùng khi mới vào hoặc chơi lại)
@@ -178,8 +248,8 @@ public class Main extends ApplicationAdapter {
         float x, y;
         int safetyLoop = 0;
         do {
-            x = MathUtils.random(TILE_SIZE, (mapWidth - 1) * TILE_SIZE);
-            y = MathUtils.random(TILE_SIZE, (mapHeight - 1) * TILE_SIZE);
+            x = MathUtils.random(TILE_SIZE, (MAP1_WIDTH - 1) * TILE_SIZE);
+            y = MathUtils.random(TILE_SIZE, (MAP_HEIGHT - 1) * TILE_SIZE);
             safetyLoop++;
         } while (isWall(x, y, 40) && safetyLoop < 100);
 
@@ -187,6 +257,33 @@ public class Main extends ApplicationAdapter {
         Texture randomEye = assetManager.get(eyes[MathUtils.random(0, 2)], Texture.class);
         enemies.add(new Goblin(x, y, 40, randomEye));
     }
+    private void spawnBoss() {
+        boss = new Rectangle(bossRoomStartX + 460, 260 , 100, 100);
+    }
+    private void spawnChest() {
+        float x, y;
+        int safetyLoop = 0;
+        Rectangle newChest;
+
+        do {
+            // Random vị trí chest trong map
+            x = MathUtils.random(chestRoomStartX + TILE_SIZE, bossRoomStartX - TILE_SIZE);
+            y = MathUtils.random(TILE_SIZE, MAP_HEIGHT * TILE_SIZE - TILE_SIZE);
+            newChest = new Rectangle(x, y, 40, 40);
+
+            safetyLoop++;
+        } while ((isWall(x, y, 80) || overlapsChest(newChest)) && safetyLoop < 100);
+
+        lootChests.add(newChest);
+    }
+
+    private boolean overlapsChest(Rectangle chest) {
+        for (Rectangle c : lootChests) {
+            if (c.overlaps(chest)) return true;
+        }
+        return false;
+    }
+
 
     @Override
     public void render() {
@@ -268,6 +365,23 @@ public class Main extends ApplicationAdapter {
     // --- LOGIC GAMEPLAY (UPDATE) ---
     private void updateGameLogic(float deltaTime) {
 
+        if(stageState == StageState.FIRST_ROOM) {
+            if(enemies.isEmpty()) {
+                stageState = StageState.CHEST_ROOM;
+            }
+        }
+        else if(stageState == StageState.CHEST_ROOM) {
+            if(lootChests.isEmpty()) {
+                for(int i=0; i<5; i++)  spawnChest();
+            }
+            stageState = StageState.BOSS_ROOM;
+        }
+        else if(stageState == StageState.BOSS_ROOM) {
+            // logic boss fight
+            spawnBoss();
+        }
+
+
         stateTime += deltaTime;
 
         // 1. INPUT POLLING [Báo cáo Chương 2.3.3]
@@ -330,14 +444,30 @@ public class Main extends ApplicationAdapter {
         // A. MAP
         Texture imgFloor = assetManager.get("floor.png", Texture.class);
         Texture imgWall = assetManager.get("bricks.png", Texture.class);
+        Texture imgDoor = assetManager.get("door.png", Texture.class);
         for (int row = 0; row < mapHeight; row++) {
             for (int col = 0; col < mapWidth; col++) {
                 float x = col * TILE_SIZE;
                 float y = (mapHeight - 1 - row) * TILE_SIZE;
                 batch.draw(imgFloor, x, y, TILE_SIZE, TILE_SIZE);
                 if (mapData[row][col] == 1) batch.draw(imgWall, x, y, TILE_SIZE, TILE_SIZE);
+                if (mapData[row][col] == -1) batch.draw(imgDoor, x, y, TILE_SIZE, TILE_SIZE);
             }
         }
+
+        // vẽ chests
+        Texture imgChest = assetManager.get("chest.png", Texture.class);
+        for(Rectangle chest : lootChests) {
+            batch.draw(imgChest, chest.x, chest.y, 40, 40);
+        }
+
+        // vẽ boss nếu stage là BOSS_ROOM
+        if(stageState == StageState.BOSS_ROOM && boss != null) {
+            Texture imgBoss = assetManager.get("demon.png", Texture.class);
+            batch.draw(imgBoss, boss.x, boss.y, boss.width, boss.height);
+        }
+
+
 
         if (currentState == State.PLAYING) {
             // B. QUÁI (AI BFS + SLIDING)
@@ -587,6 +717,7 @@ public class Main extends ApplicationAdapter {
     @Override
     public void resize(int width, int height) {
         viewport.update(width, height, true);
+        pauseStage.getViewport().update(width, height, true);
     }
 
     @Override
@@ -620,17 +751,21 @@ public class Main extends ApplicationAdapter {
 
     }
 
+    // --- MÀN HÌNH PAUSE MENU ---
     private void createPauseMenu() {
         Table table = new Table();
         table.setFillParent(true);
-        table.layout();
         pauseStage.addActor(table);
 
         TextButton resumeButton = new TextButton("Resume", skin);
         TextButton quitButton = new TextButton("Quit", skin);
 
-        table.add(resumeButton).pad(10).row();
-        table.add(quitButton).pad(10).row();
+        // Thêm mặc định kích thước dựa vào viewport
+        float buttonWidth = viewport.getWorldWidth() * 0.3f; // 30% màn hình
+        float buttonHeight = viewport.getWorldHeight() * 0.1f; // 10% màn hình
+
+        table.add(resumeButton).width(buttonWidth).height(buttonHeight).pad(10).row();
+        table.add(quitButton).width(buttonWidth).height(buttonHeight).pad(10).row();
 
         resumeButton.addListener(new ClickListener() {
             @Override
@@ -638,13 +773,73 @@ public class Main extends ApplicationAdapter {
                 resume();
             }
         });
-
         quitButton.addListener(new ClickListener() {
             @Override
             public void clicked(InputEvent event, float x, float y) {
                 Gdx.app.exit();
             }
         });
+    }
+
+
+    // --- MÀN HÌNH VICTORY ---
+    private float victoryTimer = 0; // thời gian hiện Victory
+
+    private void updateVictory(float delta) {
+        victoryTimer += delta;
+
+        if (Gdx.input.isKeyJustPressed(Input.Keys.ENTER)) {
+            currentState = State.PLAYING;
+            return;
+        }
+
+        Viewport uiViewport = pauseStage.getViewport();
+        uiViewport.apply();
+        batch.setProjectionMatrix(uiViewport.getCamera().combined);
+
+        batch.begin();
+
+        float centerX = uiViewport.getWorldWidth() / 2f;
+        float centerY = uiViewport.getWorldHeight() / 2f;
+
+        // VICTORY TEXT
+        float scale = 4f + (float)Math.sin(victoryTimer * 2) * 0.25f;  // 3.5-4.5
+        font.getData().setScale(scale);
+
+        String victoryStr = "VICTORY";
+        GlyphLayout victoryLayout = new GlyphLayout(font, victoryStr);
+
+        float victoryX = centerX - victoryLayout.width  / 2f;
+        float victoryY = centerY + victoryLayout.height / 2f;   // Đúng tâm màn hình
+
+        // Shadow
+        font.setColor(0f, 0f, 0f, 0.7f);
+        font.draw(batch, victoryStr, victoryX + 4, victoryY - 4);
+
+        // Main golden text
+        font.setColor(Color.GOLD);
+        font.draw(batch, victoryStr, victoryX, victoryY);
+
+        //  PRESS ENTER TEXT
+        font.getData().setScale(1.8f);
+
+        String enterStr = "Press ENTER to continue";
+        GlyphLayout enterLayout = new GlyphLayout(font, enterStr);
+
+        float enterX = centerX - enterLayout.width / 2f;
+        float enterY = centerY - 180f;
+
+        // Nháy
+        float alpha = (float)Math.sin(victoryTimer * 5f);
+        alpha = Math.max(0, alpha);
+        font.setColor(1f, 1f, 1f, alpha);
+
+        font.draw(batch, enterStr, enterX, enterY + enterLayout.height / 2f);
+
+        // Reset scale về 1 để không ảnh hưởng code khác
+        font.getData().setScale(1f);
+
+        batch.end();
     }
 
 }
